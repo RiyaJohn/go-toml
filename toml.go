@@ -197,50 +197,57 @@ func (t *Tree) SetWithOptions(key string, opts SetOptions, value interface{}) {
 // SetPathWithOptions is the same as SetPath, but allows you to provide
 // formatting instructions to the key, that will be reused by Marshal().
 func (t *Tree) SetPathWithOptions(keys []string, opts SetOptions, value interface{}) {
-	subtree := t
+	subtrees := []*Tree{t}
+	var tempSubtrees []*Tree
 	for i, intermediateKey := range keys[:len(keys)-1] {
-		nextTree, exists := subtree.values[intermediateKey]
-		if !exists {
-			nextTree = newTreeWithPosition(Position{Line: t.position.Line + i, Col: t.position.Col})
-			subtree.values[intermediateKey] = nextTree // add new element here
-		}
-		switch node := nextTree.(type) {
-		case *Tree:
-			subtree = node
-		case []*Tree:
-			// go to most recent element
-			if len(node) == 0 {
-				// create element if it does not exist
-				subtree.values[intermediateKey] = append(node, newTreeWithPosition(Position{Line: t.position.Line + i, Col: t.position.Col}))
+		for _, subtree := range subtrees{
+			nextTree, exists := subtree.values[intermediateKey]
+			if !exists {
+				nextTree = newTreeWithPosition(Position{Line: t.position.Line + i, Col: t.position.Col})
+				subtree.values[intermediateKey] = nextTree // add new element here
 			}
-			subtree = node[len(node)-1]
+			switch node := nextTree.(type) {
+			case *Tree:
+				tempSubtrees = append(tempSubtrees, node)
+			case []*Tree:
+				// go to most recent element
+				if len(node) == 0 {
+					// create element if it does not exist
+					subtree.values[intermediateKey] = append(node, newTreeWithPosition(Position{Line: t.position.Line + i, Col: t.position.Col}))
+				}
+				tempSubtrees = append(tempSubtrees, node...)
+			}
 		}
+		subtrees = tempSubtrees
+		tempSubtrees = nil
 	}
 
-	var toInsert interface{}
+	for _, subtree := range subtrees{
+		var toInsert interface{}
 
-	switch v := value.(type) {
-	case *Tree:
-		v.comment = opts.Comment
-		v.commented = opts.Commented
-		toInsert = value
-	case []*Tree:
-		for i := range v {
-			v[i].commented = opts.Commented
+		switch v := value.(type) {
+		case *Tree:
+			v.comment = opts.Comment
+			v.commented = opts.Commented
+			toInsert = value
+		case []*Tree:
+			for i := range v {
+				v[i].commented = opts.Commented
+			}
+			toInsert = value
+		case *tomlValue:
+			v.comment = opts.Comment
+			toInsert = v
+		default:
+			toInsert = &tomlValue{value: value,
+				comment:   opts.Comment,
+				commented: opts.Commented,
+				multiline: opts.Multiline,
+				position:  Position{Line: subtree.position.Line + len(subtree.values) + 1, Col: subtree.position.Col}}
 		}
-		toInsert = value
-	case *tomlValue:
-		v.comment = opts.Comment
-		toInsert = v
-	default:
-		toInsert = &tomlValue{value: value,
-			comment:   opts.Comment,
-			commented: opts.Commented,
-			multiline: opts.Multiline,
-			position:  Position{Line: subtree.position.Line + len(subtree.values) + 1, Col: subtree.position.Col}}
-	}
 
-	subtree.values[keys[len(keys)-1]] = toInsert
+		subtree.values[keys[len(keys)-1]] = toInsert
+	}
 }
 
 // Set an element in the tree.
