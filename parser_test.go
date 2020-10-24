@@ -239,7 +239,8 @@ func TestLocalDateTime(t *testing.T) {
 				Minute:     32,
 				Second:     0,
 				Nanosecond: 0,
-			}},
+			},
+		},
 	})
 }
 
@@ -257,7 +258,8 @@ func TestLocalDateTimeNano(t *testing.T) {
 				Minute:     32,
 				Second:     0,
 				Nanosecond: 999999000,
-			}},
+			},
+		},
 	})
 }
 
@@ -270,6 +272,34 @@ func TestLocalDate(t *testing.T) {
 			Day:   27,
 		},
 	})
+}
+
+func TestLocalDateError(t *testing.T) {
+	_, err := Load("a = 2020-09-31")
+	if err == nil {
+		t.Fatalf("should error")
+	}
+}
+
+func TestLocalTimeError(t *testing.T) {
+	_, err := Load("a = 07:99:00")
+	if err == nil {
+		t.Fatalf("should error")
+	}
+}
+
+func TestLocalDateTimeError(t *testing.T) {
+	_, err := Load("a = 2020-09-31T07:99:00")
+	if err == nil {
+		t.Fatalf("should error")
+	}
+}
+
+func TestDateTimeOffsetError(t *testing.T) {
+	_, err := Load("a = 2020-09-31T07:99:00Z")
+	if err == nil {
+		t.Fatalf("should error")
+	}
 }
 
 func TestLocalTime(t *testing.T) {
@@ -486,18 +516,6 @@ func TestNestedEmptyArrays(t *testing.T) {
 	})
 }
 
-func TestArrayMixedTypes(t *testing.T) {
-	_, err := Load("a = [42, 16.0]")
-	if err.Error() != "(1, 10): mixed types in array" {
-		t.Error("Bad error message:", err.Error())
-	}
-
-	_, err = Load("a = [42, \"hello\"]")
-	if err.Error() != "(1, 11): mixed types in array" {
-		t.Error("Bad error message:", err.Error())
-	}
-}
-
 func TestArrayNestedStrings(t *testing.T) {
 	tree, err := Load("data = [ [\"gamma\", \"delta\"], [\"Foo\"] ]")
 	assertTree(t, tree, err, map[string]interface{}{
@@ -677,7 +695,7 @@ func TestInlineTableUnterminated(t *testing.T) {
 
 func TestInlineTableCommaExpected(t *testing.T) {
 	_, err := Load("foo = {hello = 53 test = foo}")
-	if err.Error() != "(1, 19): comma expected between fields in inline table" {
+	if err.Error() != "(1, 19): unexpected token type in inline table: no value can start with t" {
 		t.Error("Bad error message:", err.Error())
 	}
 }
@@ -691,7 +709,7 @@ func TestInlineTableCommaStart(t *testing.T) {
 
 func TestInlineTableDoubleComma(t *testing.T) {
 	_, err := Load("foo = {hello = 53,, foo = 17}")
-	if err.Error() != "(1, 19): need field between two commas in inline table" {
+	if err.Error() != "(1, 19): unexpected token type in inline table: keys cannot contain , character" {
 		t.Error("Bad error message:", err.Error())
 	}
 }
@@ -699,6 +717,34 @@ func TestInlineTableDoubleComma(t *testing.T) {
 func TestInlineTableTrailingComma(t *testing.T) {
 	_, err := Load("foo = {hello = 53, foo = 17,}")
 	if err.Error() != "(1, 28): trailing comma at the end of inline table" {
+		t.Error("Bad error message:", err.Error())
+	}
+}
+
+func TestAddKeyToInlineTable(t *testing.T) {
+	_, err := Load("type = { name = \"Nail\" }\ntype.edible = false")
+	if err.Error() != "(2, 1): could not add key or sub-table to exist inline table or its sub-table : type" {
+		t.Error("Bad error message:", err.Error())
+	}
+}
+
+func TestAddSubTableToInlineTable(t *testing.T) {
+	_, err := Load("a = { b = \"c\" }\na.d.e = \"f\"")
+	if err.Error() != "(2, 1): could not add key or sub-table to exist inline table or its sub-table : a.d" {
+		t.Error("Bad error message:", err.Error())
+	}
+}
+
+func TestAddKeyToSubTableOfInlineTable(t *testing.T) {
+	_, err := Load("a = { b = { c = \"d\" } }\na.b.e = \"f\"")
+	if err.Error() != "(2, 1): could not add key or sub-table to exist inline table or its sub-table : a.b" {
+		t.Error("Bad error message:", err.Error())
+	}
+}
+
+func TestReDefineInlineTable(t *testing.T) {
+	_, err := Load("a = { b = \"c\" }\n[a]\n  d = \"e\"")
+	if err.Error() != "(2, 2): could not re-define exist inline table or its sub-table : a" {
 		t.Error("Bad error message:", err.Error())
 	}
 }
@@ -900,13 +946,11 @@ func TestTomlValueStringRepresentation(t *testing.T) {
 		{"hello world", "\"hello world\""},
 		{"\b\t\n\f\r\"\\", "\"\\b\\t\\n\\f\\r\\\"\\\\\""},
 		{"\x05", "\"\\u0005\""},
-		{time.Date(1979, time.May, 27, 7, 32, 0, 0, time.UTC),
-			"1979-05-27T07:32:00Z"},
-		{[]interface{}{"gamma", "delta"},
-			"[\"gamma\",\"delta\"]"},
+		{time.Date(1979, time.May, 27, 7, 32, 0, 0, time.UTC), "1979-05-27T07:32:00Z"},
+		{[]interface{}{"gamma", "delta"}, "[\"gamma\", \"delta\"]"},
 		{nil, ""},
 	} {
-		result, err := tomlValueStringRepresentation(item.Value, "", "", false)
+		result, err := tomlValueStringRepresentation(item.Value, "", "", OrderAlphabetical, false)
 		if err != nil {
 			t.Errorf("Test %d - unexpected error: %s", idx, err)
 		}
@@ -1033,7 +1077,7 @@ func TestInvalidFloatParsing(t *testing.T) {
 	}
 
 	_, err = Load("a=_1_2")
-	if err.Error() != "(1, 3): cannot start number with underscore" {
+	if err.Error() != "(1, 3): no value can start with _" {
 		t.Error("Bad error message:", err.Error())
 	}
 }
@@ -1097,11 +1141,10 @@ The quick brown \
     the lazy dog."""
 
 str3 = """\
-       The quick brown \ 
-       fox jumps over \ 
-       the lazy dog.\  
-       """`)
-
+       The quick brown \` + "   " + `
+       fox jumps over \` + "   " + `
+       the lazy dog.\` + "   " + `
+	   """`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
